@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.io.wavfile import write as wavwrite
 import pyaudio
 
 import pygame
@@ -8,6 +9,16 @@ screenWidth, screenHeight =  800, 800
 
 w = pygame.display.set_mode([screenWidth, screenHeight])
 c = pygame.time.Clock()
+
+#Smoothly clips an array to between edge0 and edge1, using smoothed values near edges based on the lerpMapValue
+def numpySmootherstep(x, edge0, edge1, lerpMapValue=16):
+    nx = np.clip((x - edge0) / (edge1 - edge0), 0, 1)
+
+    smoothedVal = nx * nx * nx * (nx * (nx * 6 - 15) + 10)
+
+    lerpMap = np.kaiser(len(x), lerpMapValue)
+
+    return lerp(smoothedVal, nx, lerpMap)
 
 def lerp(a, b, k):
     return ((b-a)*k)+a
@@ -241,11 +252,13 @@ class output(window):
 
         print(type(self.filledInputs[0]))
         x = self.filledInputs[0].play()
+
         x  = x*32768  # scale to int16 for sound card
 
         x = x.astype(np.int16)
         
         self.stream.write(x.tobytes())
+        wavwrite("sound.wav", fs, x)
 
 class oscillator(window):
     def __init__(self, x, y, output = []):
@@ -275,7 +288,7 @@ class oscillator(window):
             slider(x, y, 80, 20, 10, 80),
         ]
 
-        self.canvas[0].sliderPos = int((440/3000)*80)
+        self.canvas[0].sliderPos = int((19/3000)*80)
 
         self.filledInputs = []
         self.dependencies = [] # canvas index, output node index, input node index
@@ -378,6 +391,159 @@ class variableOscillator(window):
         freq = self.filledInputs[0]
 
         return [wave("sin", freq, self.filledInputs[1]/100)]
+
+class multiOscillator(window):
+    def __init__(self, x, y, deps = [], output = []):
+
+        width = 100
+        height = 100
+
+        self.pos = x, y
+        self.size = width, height
+
+        super().__init__(x, y, width, height, "Multi Oscillator", True)
+        self.inputNodes = 3
+        self.outputNodes = 1
+
+        self.output = output
+
+        self.outputNodePoints = []
+        self.inputNodePoints = []
+
+        for i in range(self.outputNodes):
+            percentDown = ((i+.5)/self.outputNodes)
+            cy = (y-(height/2)) + (percentDown*height)
+            self.outputNodePoints.append([x+(width/2), cy])
+        for i in range(self.inputNodes):
+            percentDown = ((i+.5)/self.inputNodes)
+            print(percentDown)
+            cy = (y-(height/2)) + (percentDown*height)
+            self.inputNodePoints.append([x-(width/2), cy])
+
+        self.canvas = [
+            
+        ]
+
+        self.filledInputs = []
+        self.dependencies = deps # canvas index, output node index, input node index
+    
+    def render(self, w):
+        super().render(w)
+
+        for i in self.canvas:
+            i.render(w)
+        for i in self.inputNodePoints:
+            pygame.draw.circle(w, super().getCols()[0], i, 6)
+        for i in self.outputNodePoints:
+            pygame.draw.circle(w, super().getCols()[0], i, 6)
+    
+    def update(self, mx, my, mouseState):
+        super().update(mx, my, mouseState)
+
+        for i in self.canvas:
+            i.update(mx, my, mouseState)
+
+        self.outputNodePoints = []
+        self.inputNodePoints = []
+            
+        for i in range(self.outputNodes):
+            percentDown = ((i+.5)/self.outputNodes)
+            cy = (self.pos[1]-(self.size[1]/2)) + (percentDown*self.size[1])
+            self.outputNodePoints.append([self.pos[0]+(self.size[0]/2), cy])
+        for i in range(self.inputNodes):
+            percentDown = ((i+.5)/self.inputNodes)
+            cy = (self.pos[1]-(self.size[1]/2)) + (percentDown*self.size[1])
+            self.inputNodePoints.append([self.pos[0]-(self.size[0]/2), cy])
+                    
+    def play(self):
+        print("multi oscillated")
+
+        freq = self.filledInputs[0] * 30 #0-3000
+        numHarmonics = round(self.filledInputs[1]/10) #0-10
+        amp = self.filledInputs[2]/10 #0-10
+
+        waves = [wave("sin", freq*i, (amp/i)) for i in range(1, numHarmonics+1)]
+
+        nwave = wave("sin", 0, 0)
+
+        nwave.raw = np.zeros(fs*T)
+
+        for i in waves:
+            nwave.raw += i.play()
+
+        nwave.useRaw = True
+
+        return [nwave]
+
+class clipper(window):
+    def __init__(self, x, y, deps = [], output = []):
+
+        width = 100
+        height = 50
+
+        super().__init__(x, y, width, height, "Clipper", True)
+        self.inputNodes = 1
+        self.outputNodes = 1
+
+        self.output = output
+
+        self.outputNodePoints = []
+        self.inputNodePoints = []
+
+        for i in range(self.outputNodes):
+            percentDown = ((i+.5)/self.outputNodes)
+            y = ((y-(height/2)) + (percentDown*height))
+            self.outputNodePoints.append([x+(width/2), y])
+        for i in range(self.inputNodes):
+            percentDown = ((i+.5)/self.inputNodes)
+            y = ((y-(height/2)) + (percentDown*height))
+            self.inputNodePoints.append([x-(width/2), y])
+
+        self.canvas = [
+            
+        ]
+
+        self.filledInputs = []
+        self.dependencies = deps # canvas index, output node index, input node index
+    
+    def render(self, w):
+        super().render(w)
+
+        for i in self.canvas:
+            i.render(w)
+        for i in self.inputNodePoints:
+            pygame.draw.circle(w, super().getCols()[0], i, 6)
+        for i in self.outputNodePoints:
+            pygame.draw.circle(w, super().getCols()[0], i, 6)
+    
+    def update(self, mx, my, mouseState):
+        super().update(mx, my, mouseState)
+
+        for i in self.canvas:
+            i.update(mx, my, mouseState)
+        
+        self.outputNodePoints = []
+        self.inputNodePoints = []
+
+        for i in range(self.outputNodes):
+            i += 1
+            self.outputNodePoints.append([self.pos[0]+50, self.pos[1] + ((i/(self.outputNodes+1))*50) - 25])
+        for i in range(self.inputNodes):
+            i += 1
+            self.inputNodePoints.append([self.pos[0]-50, self.pos[1] + ((i/(self.outputNodes+1))*50) - 25])
+                    
+    def play(self):
+        print("clipped")
+
+        inpWave = self.filledInputs[0]
+        
+        inRaw = inpWave.play()
+
+        outRaw = numpySmootherstep(inRaw, -1, 1)
+
+        inpWave.raw = outRaw
+
+        return [inpWave]
 
 class curveGenerator(window):
     def __init__(self, x, y, deps = [], output = []):
@@ -772,88 +938,14 @@ class waveToTriangle(window):
         sin = self.filledInputs[0]
         return [wave("tri", sin.freq, sin.amp)]
 
-class amplifier(window):
+class volume(window):
     def __init__(self, x, y, deps=[], output = []):
 
         width = 100
         height = 50
 
-        super().__init__(x, y, width, height, "Amplifier", True)
+        super().__init__(x, y, width, height, "Volume", True)
         self.inputNodes = 1
-        self.outputNodes = 1
-
-        self.output = output
-
-        self.outputNodePoints = []
-        self.inputNodePoints = []
-
-        for i in range(self.outputNodes):
-            percentDown = ((i+.5)/self.outputNodes)
-            y = ((y-(height/2)) + (percentDown*100))
-            self.outputNodePoints.append([x+(width/2), y])
-        for i in range(self.inputNodes):
-            percentDown = ((i+.5)/self.inputNodes)
-            y = ((y-(height/2)) + (percentDown*100))
-            self.inputNodePoints.append([x-(width/2), y])
-
-        self.canvas = [
-            
-        ]
-
-        self.filledInputs = []
-        self.dependencies = deps # canvas index, output node index, input node index
-    
-    def render(self, w):
-        super().render(w)
-
-        for i in self.canvas:
-            i.render(w)
-        for i in self.inputNodePoints:
-            pygame.draw.circle(w, super().getCols()[0], i, 6)
-        for i in self.outputNodePoints:
-            pygame.draw.circle(w, super().getCols()[0], i, 6)
-    
-    def update(self, mx, my, mouseState):
-        super().update(mx, my, mouseState)
-
-        for i in self.canvas:
-            i.update(mx, my, mouseState)
-        
-        self.outputNodePoints = []
-        self.inputNodePoints = []
-
-        for i in range(self.outputNodes):
-            i += 1
-            self.outputNodePoints.append([self.pos[0]+50, self.pos[1] + ((i/(self.outputNodes+1))*50) - 25])
-        for i in range(self.inputNodes):
-            i += 1
-            self.inputNodePoints.append([self.pos[0]-50, self.pos[1] + ((i/(self.outputNodes+1))*50) - 25])
-                     
-    def play(self):
-        print("Amplifier")
-        val = self.filledInputs[0]
-
-        if type(val) == wave:
-            #Some kind of wave, set amp to highest possible value
-            val.amp = .5
-            return [val]
-        elif hasattr(wave, "__len__"):
-            #Curve, map to 0-1
-            maximum = max(abs(val))
-            curve = val/maximum
-            curve += 1
-            curve /= 4
-            print(min(curve), max(curve))
-            return [curve]
-
-class expression(window):
-    def __init__(self, x, y, output = []):
-
-        width = 100
-        height = 50
-
-        super().__init__(x, y, width, height, "Expression", True)
-        self.inputNodes = 0
         self.outputNodes = 1
 
         self.output = output
@@ -874,10 +966,8 @@ class expression(window):
             slider(x, y, 80, 20, 10, 100),
         ]
 
-        self.canvas[0].sliderPos = int((440/3000)*80)
-
         self.filledInputs = []
-        self.dependencies = [] # canvas index, output node index, input node index
+        self.dependencies = deps # canvas index, output node index, input node index
     
     def render(self, w):
         super().render(w)
@@ -898,6 +988,84 @@ class expression(window):
                 i.setPos(mx, my, mouseState)
 
             i.pos = [self.pos[0], self.pos[1]+9]
+        
+        self.outputNodePoints = []
+        self.inputNodePoints = []
+
+        for i in range(self.outputNodes):
+            i += 1
+            self.outputNodePoints.append([self.pos[0]+50, self.pos[1] + ((i/(self.outputNodes+1))*50) - 25])
+        for i in range(self.inputNodes):
+            i += 1
+            self.inputNodePoints.append([self.pos[0]-50, self.pos[1] + ((i/(self.outputNodes+1))*50) - 25])
+                     
+    def play(self):
+        print("volumed")
+        val = self.filledInputs[0]
+
+        if type(val) == wave:
+            #Some kind of wave, set amp to highest possible value
+            if val.useRaw:
+                val.raw /= max(val.raw)
+                val.raw *= self.canvas[0].sliderPos/100
+            else:
+                val.amp = self.canvas[0].sliderPos/100
+            return [val]
+        else:
+            return [val/max(val)]
+
+class expression(window):
+    def __init__(self, x, y, output = []):
+
+        width = 110
+        height = 80
+
+        super().__init__(x, y, width, height, "Expression", True)
+        self.inputNodes = 0
+        self.outputNodes = 1
+
+        self.output = output
+
+        self.outputNodePoints = []
+        self.inputNodePoints = []
+
+        for i in range(self.outputNodes):
+            percentDown = ((i+.5)/self.outputNodes)
+            y = ((y-(height/2)) + (percentDown*100))
+            self.outputNodePoints.append([x+(width/2), y])
+        for i in range(self.inputNodes):
+            percentDown = ((i+.5)/self.inputNodes)
+            y = ((y-(height/2)) + (percentDown*100))
+            self.inputNodePoints.append([x-(width/2), y])
+
+        self.canvas = [
+            slider(x, y, 100, 20, 10, 101), #101 for 0-100 instead of 0-99 with 100
+            label(x, y, 25, "0"),
+        ]
+
+        self.filledInputs = []
+        self.dependencies = [] # canvas index, output node index, input node index
+    
+    def render(self, w):
+        super().render(w)
+
+        for i in self.canvas:
+            i.render(w)
+        for i in self.inputNodePoints:
+            pygame.draw.circle(w, super().getCols()[0], i, 6)
+        for i in self.outputNodePoints:
+            pygame.draw.circle(w, super().getCols()[0], i, 6)
+    
+    def update(self, mx, my, mouseState):
+        super().update(mx, my, mouseState)
+        
+        self.canvas[0].update(mx, my, mouseState)
+        if not super().get_clickingLastFrame():
+            self.canvas[0].setPos(mx, my, mouseState)
+        self.canvas[0].pos = [self.pos[0], self.pos[1]-7]
+        self.canvas[1].pos = [self.pos[0], self.pos[1]+23]
+
+        self.canvas[1].text = str(self.canvas[0].sliderPos)
         
         self.outputNodePoints = []
         self.inputNodePoints = []
@@ -1017,10 +1185,21 @@ class decay(window):
 
 canvas = [
     output(deps=[[1, 0, 0]]),
-    decay(250, 200, deps=[[2, 0, 0], [3, 0, 1]], output=[[0, 0, 0]]),
-    oscillator(100, 200, output=[[1, 0, 0]]),
-    expression(200, 500, output=[[1, 0, 1]]),
+    volume(400, 300, deps=[[2, 0, 0]], output=[[0, 0, 0]]),
+    decay(250, 200, deps=[[3, 0, 0], [4, 0, 1]], output=[[1, 0, 0]]),
+    oscillator(100, 200, output=[[2, 0, 0]]),
+    expression(200, 500, output=[[2, 0, 1]]),
 ]
+
+# canvas = [
+#     output(deps=[[1, 0, 0]]),
+#     volume(700, 575, deps=[[2, 0, 0]], output=[[0, 0, 0]]),
+#     clipper(550, 575, deps=[[3, 0, 0]], output=[[1, 0, 0]]),
+#     multiOscillator(400, 575, deps=[[4, 0, 0], [5, 0, 1], [6, 0, 2]], output=[[2, 0, 0]]),
+#     expression(200, 500, output=[[3, 0, 0]]),
+#     expression(200, 575, output=[[3, 0, 1]]),
+#     expression(200, 650, output=[[3, 0, 2]]),
+# ]
 
 # canvas = [
 #     output(deps=[[1, 0, 0]]),
